@@ -78,11 +78,20 @@ During installation, the script will prompt you for configuration parameters. Be
 - **Prompt**: `Target GitHub Repository (default: Behemiron/survive-rust-store):`
 - **Action**: Press `ENTER` to accept the official repository (`Behemiron/survive-rust-store`).
 
-### Step 7: Authorization Mode & SSH Deploy Key
-- **Prompt**: `Use SSH Deploy Key for GitHub repository authentication? (Recommended) (Y/n):`
-- **Action**: Press `ENTER` or type `y`. The script will generate a dedicated SSH keypair under `/home/${SYS_USER}/.ssh/id_ed25519_${INPUT_PROJECT_NAME}`.
-- Copy the public key printed on your console and add it to your GitHub repository Deploy Keys (or send to Behemiron if using a private build).
-- Once added, press `ENTER` to proceed with the build.
+### Step 7: License Key Generation & Activation (Crucial)
+- The installer displays your generated SSH Public Deploy Key on screen:
+  ```text
+  ==============================================================================
+    YOUR LICENSE DEPLOY KEY (COPY THE PUBLIC KEY BELOW):                        
+  ==============================================================================
+  ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... rust@server
+  ==============================================================================
+  ```
+- **Action Steps**:
+  1. Copy the full `ssh-ed25519 ...` public key line printed in your console.
+  2. Send this public key to **Behemiron** via Discord: `behemiron_777777`.
+  3. Wait for **Behemiron** to confirm that your license key has been activated for repository access.
+  4. Once confirmed by Behemiron, return to your server console and press `ENTER` to resume installation.
 
 ---
 

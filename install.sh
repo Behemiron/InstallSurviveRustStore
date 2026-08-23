@@ -125,19 +125,18 @@ if [ -n "$GIT_REPO" ]; then
     chown -R "${SYS_USER}:${SYS_USER}" "${SYS_HOME}/.ssh"
     
     echo -e "\n${GREEN}==============================================================================${NC}"
-    echo -e "${GREEN}  YOUR SSH DEPLOY KEY (COPY THE ENTIRE LINE BELOW):                           ${NC}"
+    echo -e "${GREEN}  YOUR LICENSE DEPLOY KEY (COPY THE PUBLIC KEY BELOW):                        ${NC}"
     echo -e "${GREEN}==============================================================================${NC}"
     cat "${SSH_KEY_FILE}.pub"
     echo -e "${GREEN}==============================================================================${NC}"
-    echo -e "  DEPLOY KEY ACTIVATION INSTRUCTIONS:"
-    echo -e "  1. Copy the full public key string starting with 'ssh-ed25519 ...'"
-    echo -e "  2. Go to your GitHub repository -> Settings -> Deploy keys -> Add deploy key"
-    echo -e "  3. Paste the key, give it a title (e.g. VPS Deploy Key), and click Add key."
-    echo -e "     (If you are using the official private repo, send it to Behemiron on Discord: behemiron_777777)"
-    echo -e "  4. Once added/confirmed, press ENTER to resume installation."
+    echo -e "  LICENSE ACTIVATION INSTRUCTIONS:"
+    echo -e "  1. Copy the full public key string above."
+    echo -e "  2. Send this key directly to Behemiron via Discord: behemiron_777777"
+    echo -e "  3. Wait for Behemiron to confirm that your license key has been added to repository."
+    echo -e "  4. Once confirmed by Behemiron, press ENTER below to proceed with installation."
     echo -e "${GREEN}==============================================================================${NC}"
     
-    read -p "Press ENTER to continue installation..." dummy < /dev/tty || true
+    read -p "After Behemiron confirms key activation, press ENTER to continue installation..." dummy < /dev/tty || true
   fi
 fi
 
@@ -382,6 +381,7 @@ echo -e "  Website URL:             http://${DOMAIN:-Your_Server_IP}"
 echo -e "  Backend API URL:         http://${DOMAIN:-Your_Server_IP}/api"
 echo -e "  Database Password:       ${DB_PASS} (Saved in ${APP_DIR}/.db_creds)"
 echo -e "  In-Game Plugin Secret:   ${RUST_SECRET}"
+echo -e "  Developer Support:       Discord: behemiron_777777"
 echo -e "${GREEN}==============================================================================${NC}"
 
 # Clean up installer script file
