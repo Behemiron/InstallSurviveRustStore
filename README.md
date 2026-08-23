@@ -1,75 +1,131 @@
-# 🚀 SURVIVE RUST STORE - Auto-Installer & Setup Script
+# Survive Rust Store — Automated Server Deployment
 
-Автоматический скрипт установки и развертывания веб-магазина **SURVIVE RUST STORE** на серверах Ubuntu 20.04 / 22.04 / 24.04 (LTS).
+Production-ready automated installation script for deploying the **SURVIVE RUST Store** web platform on **Ubuntu 20.04 / 22.04 / 24.04 LTS**.
+
+Designed & Maintained by **PavelNetesov / Behemiron** (Discord: `behemiron_777777`).
 
 ---
 
-## ⚡ Быстрая установка в 1 команду
+## Architecture & Security Breakdown
 
-Подключитесь к вашему VPS-серверу по SSH от имени `root` и выполните следующую команду:
+This installer configures a hardened, non-root Linux environment following production security standards:
 
+1. **System User Isolation**: Automatically creates a non-privileged system user `${project_name}_surviverust` (`/home/${project_name}_surviverust`) and runs all Node.js / PM2 / Next.js / Express application processes strictly under this unprivileged user.
+2. **Automated UFW Firewall Security**:
+   - **Allowed Public Ports**: `80` (HTTP), `443` (HTTPS), `22` (SSH).
+   - **Blocked External Ports**: `3306` (MySQL), `6379` (Redis), `3000` (Next.js Direct), `5000` (Express API Direct).
+   - Database and application services bind locally to `127.0.0.1` and are reverse-proxied exclusively through Nginx.
+3. **Database Isolation**: Installs MySQL Server and creates a dedicated database `${project_name}_db` with auto-generated 32-character high-entropy credentials.
+4. **Nginx Reverse Proxy & SSL**: Configures virtual host routing for API `/api`, WebSocket `/ws`, and frontend `/`, with automated Let's Encrypt TLS certificate issuance via Certbot.
+5. **Zero-Downtime Process Management**: Integrates PM2 with systemd auto-restart policies upon VPS reboot.
+6. **In-Game Rust Plugin Security**: Uses a secure shared secret and HMAC request validation for game server store delivery.
+
+---
+
+## Prerequisites
+
+Before executing the installer:
+
+1. A fresh **Ubuntu LTS (20.04 / 22.04 / 24.04)** server instance with SSH `root` access.
+2. A valid domain name with its **DNS A Record** pointing to your VPS public IP (e.g., `store.yourrustserver.com`).
+3. Your **Steam Web API Key** (obtainable from [Steam Developer Portal](https://steamcommunity.com/dev/apikey)).
+4. Your **SteamID64** for initial Super Admin privileges.
+
+---
+
+## Quick One-Line Launch
+
+Connect to your VPS via SSH as `root` and run:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Behemiron/InstallSurviveRustStore/main/install.sh)"
+```
+
+Alternatively:
 ```bash
 curl -sSL https://raw.githubusercontent.com/Behemiron/InstallSurviveRustStore/main/install.sh | sudo bash
 ```
 
 ---
 
-## 🛠️ Что выполняет скрипт установки?
+## Step-by-Step Installation Prompt Walkthrough
 
-1. **Проверка требований ОС**: Поддержка чистых серверов Ubuntu (20.04 / 22.04 / 24.04 LTS).
-2. **Создание изолированного системного пользователя**: Все процессы запускаются под нелегитимным пользователем `surviverust`.
-3. **Генерация SSH Deploy Key**: Автоматически создает SSH-ключ для безопасности интеграции с GitHub.
-4. **Установка системного стека**:
-   - Node.js 20 LTS
-   - MySQL 8.0 Server
-   - Nginx Reverse Proxy
-   - Redis Server
-   - PM2 Process Manager
-   - Certbot Let's Encrypt SSL
-5. **Авто-конфигурация БД и Безопасности**:
-   - Генерация случайных устойчивых паролей для базы данных MySQL и секретных ключей JWT (`JWT_SECRET`).
-   - Автоматическое создание схемы базы данных с помощью Prisma (`prisma db push`).
-6. **Сборка Бэкенда и Фронтенда**:
-   - Автоматическая компиляция TypeScript & Next.js 16 (Turbopack).
-   - Запуск сервисов под PM2 с выстраиванием автозапуска через `systemd`.
-7. **Автоматизация SSL Let's Encrypt**:
-   - Регистрация и настройка бесплатных HTTPS-сертификатов SSL в один клик.
+During installation, the script will prompt you for configuration parameters. Below is the complete step-by-step breakdown:
 
----
+### Step 1: Unique Project & System User Name
+- **Prompt**: `Enter a unique project / server identifier (e.g., survive, rust_pvp) [default: rust]:`
+- **Action**: Enter your custom project identifier (e.g., `survive`).
+- **Security Hardening**: The installer dynamically generates a unique isolated Linux system user `${name}_surviverust` (e.g., `survive_surviverust`), isolates its home directory `/home/survive_surviverust`, installs application code in `/var/www/survive_surviverust`, and provisions a dedicated database `${name}_db`. This completely eliminates predictable path vectors across target servers.
 
-## 📁 Структура установленного проекта
+### Step 2: Domain Configuration
+- **Prompt**: `Enter your domain name (e.g., surviverust.com) or leave blank for VPS IP:`
+- **Action**: Type your domain name (e.g. `store.yourrustserver.com`) without `http://` or `https://`.
+- **Note**: If you do not have a domain yet, press `ENTER`. The script will automatically detect your public VPS IP address and configure the web store to run directly on the IP.
 
-После установки проект размещается в следующих директориях:
+### Step 3: Steam Web API Key
+- **Prompt**: `Enter your Steam Web API Key (obtain from https://steamcommunity.com/dev/apikey):`
+- **Action**: Paste your 32-character Steam Developer API Key. This key is required for Steam OpenID authentication and retrieving player avatars and names.
 
-- **Директория приложения**: `/var/www/survive-rust`
-- **Конфигурация бэкенда**: `/var/www/survive-rust/backend/.env`
-- **Конфигурация фронтенда**: `/var/www/survive-rust/frontend/.env.local`
-- **Резервная копия доступов БД**: `/var/www/survive-rust/.db_creds`
-- **Логи автоматического обновления**: `/var/www/survive-rust/update.log`
+### Step 4: Admin SteamID64
+- **Prompt**: `Enter Admin SteamID64 (e.g., 76561198000000000) for Super Admin privileges:`
+- **Action**: Enter your SteamID64 to receive immediate Super Admin and Owner permissions in the store CMS dashboard.
 
----
+### Step 5: Rust Server Plugin Secret Key
+- **Prompt**: `Enter Rust Server In-Game Plugin Secret Key [default: auto-generated]:`
+- **Action**: Press `ENTER` to generate a secure 32-character random key or specify your custom secret for the Rust in-game C# plugin.
 
-## 🔄 Обновление сайта одной кнопкой
+### Step 6: Repository Selection
+- **Prompt**: `Target GitHub Repository (default: Behemiron/survive-rust-store):`
+- **Action**: Press `ENTER` to accept the official repository (`Behemiron/survive-rust-store`).
 
-Магазин оснащен встроенным модулем автоматического обновления из админ-панели (**CMS -&gt; Система и Обновления -&gt; Обновить сайт одной кнопкой**).
-
-Скрипт обновления самостоятельно:
-- Выполняет `git pull` из ветки `main`
-- Генерирует схемы Prisma и применяет изменения БД
-- Пересобирает фронтенд и бэкенд
-- Перезапускает процессы PM2 без простоев (Zero-downtime reload)
+### Step 7: Authorization Mode & SSH Deploy Key
+- **Prompt**: `Use SSH Deploy Key for GitHub repository authentication? (Recommended) (Y/n):`
+- **Action**: Press `ENTER` or type `y`. The script will generate a dedicated SSH keypair under `/home/${SYS_USER}/.ssh/id_ed25519_${INPUT_PROJECT_NAME}`.
+- Copy the public key printed on your console and add it to your GitHub repository Deploy Keys (or send to Behemiron if using a private build).
+- Once added, press `ENTER` to proceed with the build.
 
 ---
 
-## 🛡️ Безопасность
+## Post-Installation Automated Sequence
 
-Проект полностью защищен в соответствии со стандартами кибербезопасности:
-- **HTTP Security Headers**: HSTS, X-Frame-Options (Clickjacking), X-Content-Type-Options (NoSniff), Referrer-Policy, XSS Protection.
-- **DDoS & Rate Limiting**: Скользящие лимиты запросов на логин, покупки и админ-действия.
-- **Input Sanitization**: Очистка пользовательского ввода от вредоносных скриптов.
-- **HMAC Signatures**: Защищенный API-канал для C# плагина Rust.
+After pressing `ENTER`, the installer autonomously handles the rest of the deployment:
+
+1. Installs Node.js 20 LTS, MySQL, Redis, Nginx, Certbot, PM2, and UFW Firewall.
+2. Clones the repository codebase into your custom isolated project directory `/var/www/${project_user}`.
+3. Auto-generates production `.env` and `.env.local` configuration files with secure random database passwords and JWT secrets.
+4. Generates Prisma database models and applies migrations (`npx prisma db push`).
+5. Compiles the Next.js frontend web application (`npm run build`).
+6. Configures Nginx virtual host proxying with WebSocket support and issues SSL certificates via Certbot.
+7. Enables UFW Firewall rules blocking external access to database and internal backend ports (`3306`, `6379`, `3000`, `5000`).
+8. Launches background services under PM2 and configures systemd startup policies.
 
 ---
 
-## 📜 Лицензия
-Магазин SURVIVE RUST Store поставляется по лицензии MIT.
+## Server Management Commands
+
+Replace `<project_user>` (e.g., `survive_surviverust`) and `<project_name>` (e.g., `survive`) with the custom project identifier chosen during setup:
+
+```bash
+# View active application process status
+sudo -u <project_user> pm2 status
+
+# View live application logs
+sudo -u <project_user> pm2 logs <project_name>-backend
+sudo -u <project_user> pm2 logs <project_name>-frontend
+
+# Restart application services
+sudo -u <project_user> pm2 restart <project_name>-backend
+sudo -u <project_user> pm2 restart <project_name>-frontend
+
+# Check active UFW firewall rules & blocked ports
+sudo ufw status verbose
+```
+
+---
+
+## Developer Support & Inquiries
+
+For license activations, technical support, or custom Rust plugin integrations:
+
+- **Lead Architect & Developer**: PavelNetesov / Behemiron
+- **Discord**: `behemiron_777777`
