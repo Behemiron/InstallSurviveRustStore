@@ -45,7 +45,9 @@ fi
 # 2. Interactive Project & User Configuration
 echo -e "\n${YELLOW}>>> Configuring Project Parameters & System Environment...${NC}"
 
-read -p "Enter a unique project / server identifier (e.g., survive, rust_pvp) [default: rust]: " INPUT_PROJECT_NAME < /dev/tty || true
+if [ -z "$INPUT_PROJECT_NAME" ]; then
+  read -p "Enter a unique project / server identifier (e.g., survive, rust_pvp) [default: rust]: " INPUT_PROJECT_NAME < /dev/tty || true
+fi
 INPUT_PROJECT_NAME=$(echo "$INPUT_PROJECT_NAME" | tr -cd 'a-zA-Z0-9_' | tr '[:upper:]' '[:lower:]')
 INPUT_PROJECT_NAME=${INPUT_PROJECT_NAME:-rust}
 
@@ -63,8 +65,10 @@ echo -e "${GREEN}✓ Isolated System User:     ${SYS_USER}${NC}"
 echo -e "${GREEN}✓ Project Installation Path: ${APP_DIR}${NC}"
 echo -e "${GREEN}✓ Dedicated MySQL Database:  ${DB_NAME}${NC}"
 
-read -p "Enter your domain name (e.g., surviverust.com) or leave blank for VPS IP: " DOMAIN < /dev/tty || true
-DOMAIN=$(echo "$DOMAIN" | tr -d '\r')
+if [ -z "$DOMAIN" ]; then
+  read -p "Enter your domain name (e.g., surviverust.com) or leave blank for VPS IP: " DOMAIN < /dev/tty || true
+  DOMAIN=$(echo "$DOMAIN" | tr -d '\r')
+fi
 
 if [ -z "$DOMAIN" ]; then
   echo -e "${YELLOW}No domain specified. Automatically detecting your server's public IP address...${NC}"
@@ -76,24 +80,29 @@ if [ -z "$DOMAIN" ]; then
   echo -e "${GREEN}✓ Operating with server IP: ${DOMAIN}${NC}"
 fi
 
-read -p "Enter your Steam Web API Key (obtain from https://steamcommunity.com/dev/apikey): " STEAM_KEY < /dev/tty || true
-STEAM_KEY=$(echo "$STEAM_KEY" | tr -d '\r')
+if [ -z "$STEAM_KEY" ]; then
+  read -p "Enter your Steam Web API Key (obtain from https://steamcommunity.com/dev/apikey): " STEAM_KEY < /dev/tty || true
+  STEAM_KEY=$(echo "$STEAM_KEY" | tr -d '\r')
+fi
 
-read -p "Enter Admin SteamID64 (e.g., 76561198000000000) for Super Admin privileges: " ADMIN_STEAM_ID < /dev/tty || true
-ADMIN_STEAM_ID=$(echo "$ADMIN_STEAM_ID" | tr -d '\r')
+if [ -z "$ADMIN_STEAM_ID" ]; then
+  read -p "Enter Admin SteamID64 (e.g., 76561198000000000) for Super Admin privileges: " ADMIN_STEAM_ID < /dev/tty || true
+  ADMIN_STEAM_ID=$(echo "$ADMIN_STEAM_ID" | tr -d '\r')
+fi
 
-read -p "Enter Rust Server In-Game Plugin Secret Key [default: auto-generated]: " RUST_SECRET < /dev/tty || true
-RUST_SECRET=$(echo "$RUST_SECRET" | tr -d '\r')
+if [ -z "$RUST_SECRET" ]; then
+  read -p "Enter Rust Server In-Game Plugin Secret Key [default: auto-generated]: " RUST_SECRET < /dev/tty || true
+  RUST_SECRET=$(echo "$RUST_SECRET" | tr -d '\r')
+fi
 if [ -z "$RUST_SECRET" ]; then
   RUST_SECRET=$(openssl rand -hex 16)
 fi
 
-read -p "Target GitHub Repository (default: Behemiron/survive-rust-store): " GIT_REPO < /dev/tty || true
-GIT_REPO=$(echo "$GIT_REPO" | tr -d '\r')
+if [ -z "$GIT_REPO" ]; then
+  read -p "Target GitHub Repository (default: Behemiron/survive-rust-store): " GIT_REPO < /dev/tty || true
+  GIT_REPO=$(echo "$GIT_REPO" | tr -d '\r')
+fi
 GIT_REPO=${GIT_REPO:-Behemiron/survive-rust-store}
-
-USE_SSH="true"
-GIT_TOKEN=""
 
 # 3. Create Dedicated Non-Privileged System User
 if ! id "$SYS_USER" &>/dev/null; then
@@ -102,14 +111,19 @@ if ! id "$SYS_USER" &>/dev/null; then
   echo -e "${GREEN}✓ System user created successfully.${NC}"
 fi
 
-# Configure SSH Deployment Keys for Git Synchronization
-if [ -n "$GIT_REPO" ]; then
-  read -p "Use SSH Deploy Key for GitHub repository authentication? (Recommended) (Y/n): " auth_choice < /dev/tty || true
-  if [[ "$auth_choice" =~ ^[Nn]$ ]]; then
-    USE_SSH="false"
-    read -p "Enter your GitHub Personal Access Token (PAT): " GIT_TOKEN < /dev/tty || true
-  else
-    USE_SSH="true"
+# Configure SSH Deployment Keys for Git Synchronization (if not using LOCAL_SOURCE)
+if [ -z "$LOCAL_SOURCE" ] && [ -n "$GIT_REPO" ]; then
+  if [ -z "$USE_SSH" ]; then
+    read -p "Use SSH Deploy Key for GitHub repository authentication? (Recommended) (Y/n): " auth_choice < /dev/tty || true
+    if [[ "$auth_choice" =~ ^[Nn]$ ]]; then
+      USE_SSH="false"
+      read -p "Enter your GitHub Personal Access Token (PAT): " GIT_TOKEN < /dev/tty || true
+    else
+      USE_SSH="true"
+    fi
+  fi
+
+  if [ "$USE_SSH" = "true" ]; then
     # Ensure project user's .ssh directory exists with restricted permissions
     mkdir -p "${SYS_HOME}/.ssh"
     chmod 700 "${SYS_HOME}/.ssh"
@@ -136,7 +150,9 @@ if [ -n "$GIT_REPO" ]; then
     echo -e "  4. Once confirmed by Behemiron, press ENTER below to proceed with installation."
     echo -e "${GREEN}==============================================================================${NC}"
     
-    read -p "After Behemiron confirms key activation, press ENTER to continue installation..." dummy < /dev/tty || true
+    if [ "$AUTO_CONFIRM" != "true" ]; then
+      read -p "After Behemiron confirms key activation, press ENTER to continue installation..." dummy < /dev/tty || true
+    fi
   fi
 fi
 
@@ -190,7 +206,7 @@ mysql -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB
 mysql -e "GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';"
 mysql -e "FLUSH PRIVILEGES;"
 
-# 7. Clone Repository into Application Directory
+# 7. Clone / Copy Repository into Application Directory
 echo -e "${YELLOW}>>> Setting up application directory in ${APP_DIR}...${NC}"
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR"
@@ -199,7 +215,11 @@ chown "${SYS_USER}:${SYS_USER}" "$APP_DIR"
 git config --system --add safe.directory "$APP_DIR" || true
 git config --global --add safe.directory "$APP_DIR" || true
 
-if [ "$USE_SSH" = "true" ]; then
+if [ -n "$LOCAL_SOURCE" ] && [ -d "$LOCAL_SOURCE" ]; then
+  echo -e "${GREEN}✓ Deploying from local source: ${LOCAL_SOURCE}${NC}"
+  cp -r "$LOCAL_SOURCE/." "$APP_DIR/"
+  chown -R "${SYS_USER}:${SYS_USER}" "$APP_DIR"
+elif [ "$USE_SSH" = "true" ]; then
   sudo -u "$SYS_USER" git config --global --add safe.directory "$APP_DIR" || true
   sudo -u "$SYS_USER" GIT_SSH_COMMAND="ssh -i ${SSH_KEY_FILE} -o StrictHostKeyChecking=no" git clone -b main "git@github.com:${GIT_REPO}.git" "$APP_DIR"
   cd "$APP_DIR"
