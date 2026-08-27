@@ -2,7 +2,7 @@
 # ==============================================================================
 #                 SURVIVE RUST STORE - Ubuntu Auto-Installer Script
 # ==============================================================================
-# Supported Operating Systems: Ubuntu 20.04 / 22.04 / 24.04 (LTS)
+# Supported Operating Systems: Ubuntu 20.04 / 22.04 / 24.04 (LTS) & Debian 11/12
 # Lead Architect & Developer: PavelNetesov / Behemiron (Discord: behemiron_777777)
 # Execution: Run as root (the installer sets up an isolated non-root system user)
 # ==============================================================================
@@ -30,8 +30,8 @@ fi
 
 if [ -f /etc/os-release ]; then
   . /etc/os-release
-  if [ "$ID" != "ubuntu" ]; then
-    echo -e "${YELLOW}Warning: This script is officially tested and optimized for Ubuntu LTS only.${NC}"
+  if [ "$ID" != "ubuntu" ] && [ "$ID" != "debian" ]; then
+    echo -e "${YELLOW}Warning: This script is officially tested and optimized for Ubuntu LTS / Debian.${NC}"
     read -p "Do you want to continue anyway? (y/N): " confirm < /dev/tty || true
     if [[ ! $confirm =~ ^[Yy]$ ]]; then
       exit 1
@@ -146,11 +146,11 @@ JWT_SECRET=$(openssl rand -hex 32)
 JWT_REFRESH_SECRET=$(openssl rand -hex 32)
 
 echo -e "\n${YELLOW}>>> Installing system packages and dependencies...${NC}"
+export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get upgrade -y
-apt-get install -y curl git build-essential openssl nginx certbot python3-certbot-nginx sudo redis-server ufw
+apt-get install -y curl git build-essential openssl nginx certbot python3-certbot-nginx sudo redis-server ufw ca-certificates gnupg
 
-# Configure sudoers to allow the isolated user to safely reload Nginx without root login
+# Configure sudoers to allow the isolated user to safely reload Nginx and manage certs without root login
 echo -e "${YELLOW}>>> Granting scoped sudo permissions for ${SYS_USER}...${NC}"
 echo "${SYS_USER} ALL=(ALL) NOPASSWD: /usr/sbin/nginx, /usr/bin/systemctl reload nginx, /usr/bin/certbot" > "/etc/sudoers.d/${SYS_USER}"
 chmod 440 "/etc/sudoers.d/${SYS_USER}"
@@ -201,11 +201,11 @@ git config --global --add safe.directory "$APP_DIR" || true
 
 if [ "$USE_SSH" = "true" ]; then
   sudo -u "$SYS_USER" git config --global --add safe.directory "$APP_DIR" || true
-  sudo -u "$SYS_USER" GIT_SSH_COMMAND="ssh -i ${SSH_KEY_FILE} -o StrictHostKeyChecking=no" git clone "git@github.com:${GIT_REPO}.git" "$APP_DIR"
+  sudo -u "$SYS_USER" GIT_SSH_COMMAND="ssh -i ${SSH_KEY_FILE} -o StrictHostKeyChecking=no" git clone -b main "git@github.com:${GIT_REPO}.git" "$APP_DIR"
   cd "$APP_DIR"
   sudo -u "$SYS_USER" git config core.sshCommand "ssh -i ${SSH_KEY_FILE} -o StrictHostKeyChecking=no"
 else
-  sudo -u "$SYS_USER" git clone "https://${GIT_TOKEN}@github.com/${GIT_REPO}.git" "$APP_DIR"
+  sudo -u "$SYS_USER" git clone -b main "https://${GIT_TOKEN}@github.com/${GIT_REPO}.git" "$APP_DIR"
 fi
 
 # 8. Generate Production Environment Configuration Files (.env)
@@ -264,6 +264,14 @@ cd "$APP_DIR/backend"
 sudo -u "$SYS_USER" npm install --production=false
 sudo -u "$SYS_USER" npx prisma generate
 sudo -u "$SYS_USER" npx prisma db push --accept-data-loss
+sudo -u "$SYS_USER" npm run build
+
+# Auto-provision Super Admin if SteamID was provided
+if [ -n "$ADMIN_STEAM_ID" ]; then
+  echo -e "${YELLOW}>>> Provisioning Super Admin account in database...${NC}"
+  mysql "$DB_NAME" -u "$DB_USER" -p"$DB_PASS" -e "INSERT INTO User (id, username, avatar, balance, adminFlags, staffRole, createdAt, updatedAt) VALUES ('${ADMIN_STEAM_ID}', 'Owner Admin', '', 0.0, 'SUPER_ADMIN', 'OWNER', NOW(), NOW()) ON DUPLICATE KEY UPDATE adminFlags='SUPER_ADMIN', staffRole='OWNER';" 2>/dev/null || true
+  echo -e "${GREEN}✓ Super Admin account granted for SteamID: ${ADMIN_STEAM_ID}${NC}"
+fi
 
 # 10. Build Frontend Web Application
 echo -e "${YELLOW}>>> Installing dependencies and compiling Frontend Next.js app...${NC}"
@@ -271,12 +279,19 @@ cd "$APP_DIR/frontend"
 sudo -u "$SYS_USER" npm install --production=false
 sudo -u "$SYS_USER" NEXT_PUBLIC_API_URL="http://${DOMAIN:-localhost}" NEXT_PUBLIC_WS_URL="ws://${DOMAIN:-localhost}" npm run build
 
-# 11. Configure Nginx Reverse Proxy with WebSocket Support
+# 11. Configure Nginx Reverse Proxy with WebSocket Support & Hardened Limits
 echo -e "${YELLOW}>>> Configuring Nginx Virtual Host...${NC}"
 cat > "/etc/nginx/sites-available/${NGINX_CONF}" << NGINXEOF
 server {
     listen 80;
     server_name ${DOMAIN:-_};
+
+    client_max_body_size 50M;
+
+    # Gzip compression for high speed delivery
+    gzip on;
+    gzip_proxied any;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript image/svg+xml;
 
     # Frontend Next.js reverse proxy
     location / {
@@ -287,6 +302,7 @@ server {
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_cache_bypass \$http_upgrade;
         add_header Cache-Control "no-cache, no-store, must-revalidate";
         add_header Pragma "no-cache";
@@ -302,10 +318,12 @@ server {
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_cache_bypass \$http_upgrade;
+        client_max_body_size 50M;
     }
 
-    # WebSocket stream endpoint for live player counts and live updates
+    # WebSocket stream endpoint for live player counts and real-time updates
     location /ws {
         proxy_pass http://localhost:5000;
         proxy_http_version 1.1;
@@ -314,6 +332,9 @@ server {
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
     }
 
     # Optimized caching for static Next.js build assets
@@ -336,13 +357,13 @@ rm -f /etc/nginx/sites-enabled/default || true
 nginx -t
 systemctl reload nginx
 
-# 12. Start Application Services under PM2 using the Isolated System User
-echo -e "${YELLOW}>>> Starting PM2 processes under user '${SYS_USER}'...${NC}"
+# 12. Start Application Services under PM2 using the Isolated System User (Compiled Production Mode)
+echo -e "${YELLOW}>>> Starting PM2 processes in Production mode under user '${SYS_USER}'...${NC}"
 sudo -u "$SYS_USER" pm2 delete "$PM2_BACKEND" 2>/dev/null || true
 sudo -u "$SYS_USER" pm2 delete "$PM2_FRONTEND" 2>/dev/null || true
 
 cd "$APP_DIR/backend"
-sudo -u "$SYS_USER" pm2 start npm --name "$PM2_BACKEND" -- run dev
+sudo -u "$SYS_USER" pm2 start dist/src/index.js --name "$PM2_BACKEND"
 
 cd "$APP_DIR/frontend"
 sudo -u "$SYS_USER" pm2 start npm --name "$PM2_FRONTEND" -- start -- -p 3000
@@ -350,10 +371,18 @@ sudo -u "$SYS_USER" pm2 start npm --name "$PM2_FRONTEND" -- start -- -p 3000
 sudo -u "$SYS_USER" pm2 save
 env PATH=$PATH:/usr/bin pm2 startup systemd -u "$SYS_USER" --hp "$SYS_HOME" || true
 
-# 13. Automated Let's Encrypt SSL Certificate Issuance
-if [ -n "$DOMAIN" ] && [ "$DOMAIN" != "localhost" ]; then
-  echo -e "${YELLOW}>>> Requesting Let's Encrypt SSL certificate for ${DOMAIN}...${NC}"
+# 13. Automated Let's Encrypt SSL Certificate Issuance (Domain vs IP check)
+IS_IP="false"
+if [[ "$DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || [ "$DOMAIN" = "localhost" ]; then
+  IS_IP="true"
+fi
+
+if [ "$IS_IP" = "false" ] && [ -n "$DOMAIN" ]; then
+  echo -e "${YELLOW}>>> Requesting Let's Encrypt SSL certificate for domain ${DOMAIN}...${NC}"
   certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "admin@${DOMAIN}" --redirect || echo -e "${RED}Warning: Could not automatically issue SSL certificate. Ensure your domain's DNS A Record points to this server IP.${NC}"
+else
+  echo -e "${CYAN}ℹ Notice: Installation is configured with server IP (${DOMAIN}). SSL requires a valid domain name.${NC}"
+  echo -e "${CYAN}  You can attach your domain and activate SSL at any time in Admin Panel -> Domain & SSL Settings.${NC}"
 fi
 
 # 14. Configure Hardened UFW Firewall Rules
@@ -379,6 +408,7 @@ echo -e "  Project / System User:   ${SYS_USER}"
 echo -e "  Installation Directory:  ${APP_DIR}"
 echo -e "  Website URL:             http://${DOMAIN:-Your_Server_IP}"
 echo -e "  Backend API URL:         http://${DOMAIN:-Your_Server_IP}/api"
+echo -e "  Super Admin SteamID:     ${ADMIN_STEAM_ID:-Not configured}"
 echo -e "  Database Password:       ${DB_PASS} (Saved in ${APP_DIR}/.db_creds)"
 echo -e "  In-Game Plugin Secret:   ${RUST_SECRET}"
 echo -e "  Developer Support:       Discord: behemiron_777777"
