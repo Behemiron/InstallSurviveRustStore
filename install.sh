@@ -2,6 +2,7 @@
 # ==============================================================================
 #                 SURVIVE RUST STORE - Ubuntu Auto-Installer Script
 # ==============================================================================
+# Version: 2.1.0-production (Battle-tested on Ubuntu 20.04 / 22.04 / 24.04 LTS)
 # Supported Operating Systems: Ubuntu 20.04 / 22.04 / 24.04 (LTS) & Debian 11/12
 # Lead Architect & Developer: PavelNetesov / Behemiron (Discord: behemiron_777777)
 # Execution: Run as root (the installer sets up an isolated non-root system user)
