@@ -380,17 +380,17 @@ systemctl reload nginx
 
 # 12. Start Application Services under PM2 using the Isolated System User (Compiled Production Mode)
 echo -e "${YELLOW}>>> Starting PM2 processes in Production mode under user '${SYS_USER}'...${NC}"
-sudo -u "$SYS_USER" pm2 delete "$PM2_BACKEND" 2>/dev/null || true
-sudo -u "$SYS_USER" pm2 delete "$PM2_FRONTEND" 2>/dev/null || true
+loginctl enable-linger "$SYS_USER" 2>/dev/null || true
+sudo -H -u "$SYS_USER" pm2 delete "$PM2_BACKEND" 2>/dev/null || true
+sudo -H -u "$SYS_USER" pm2 delete "$PM2_FRONTEND" 2>/dev/null || true
 
-cd "$APP_DIR/backend"
-sudo -u "$SYS_USER" pm2 start dist/src/index.js --name "$PM2_BACKEND"
+sudo -H -u "$SYS_USER" pm2 start "${APP_DIR}/backend/dist/src/index.js" --name "$PM2_BACKEND" --cwd "${APP_DIR}/backend"
+sudo -H -u "$SYS_USER" pm2 start npm --name "$PM2_FRONTEND" --cwd "${APP_DIR}/frontend" -- start -- -p 3000
 
-cd "$APP_DIR/frontend"
-sudo -u "$SYS_USER" pm2 start npm --name "$PM2_FRONTEND" -- start -- -p 3000
-
-sudo -u "$SYS_USER" pm2 save
-env PATH=$PATH:/usr/bin pm2 startup systemd -u "$SYS_USER" --hp "$SYS_HOME" || true
+sudo -H -u "$SYS_USER" pm2 save
+env PATH="$PATH:/usr/bin" pm2 startup systemd -u "$SYS_USER" --hp "$SYS_HOME" || true
+systemctl enable "pm2-${SYS_USER}" 2>/dev/null || true
+systemctl start "pm2-${SYS_USER}" 2>/dev/null || true
 
 # 13. Automated Let's Encrypt SSL Certificate Issuance (Domain vs IP check)
 IS_IP="false"
