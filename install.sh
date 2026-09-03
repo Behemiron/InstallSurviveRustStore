@@ -167,9 +167,27 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y curl git build-essential openssl nginx certbot python3-certbot-nginx sudo redis-server ufw ca-certificates gnupg
 
-# Configure sudoers to allow the isolated user to safely reload Nginx and manage certs without root login
+# Create restricted SSL helper script to prevent privilege escalation via certbot flags
+cat > /usr/local/bin/survive-rust-ssl << 'SSLEOF'
+#!/bin/bash
+set -e
+DOMAIN="$1"
+EMAIL="$2"
+if [ -z "$DOMAIN" ]; then
+    echo "Error: Domain required"
+    exit 1
+fi
+EMAIL_ARG="--register-unsafely-without-email"
+if [ -n "$EMAIL" ]; then
+    EMAIL_ARG="-m $EMAIL"
+fi
+/usr/bin/certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos $EMAIL_ARG --redirect
+SSLEOF
+chmod 755 /usr/local/bin/survive-rust-ssl
+
+# Configure sudoers to allow the isolated user to safely reload Nginx and request SSL without root login
 echo -e "${YELLOW}>>> Granting scoped sudo permissions for ${SYS_USER}...${NC}"
-echo "${SYS_USER} ALL=(ALL) NOPASSWD: /usr/sbin/nginx, /usr/bin/systemctl reload nginx, /usr/bin/certbot" > "/etc/sudoers.d/${SYS_USER}"
+echo "${SYS_USER} ALL=(ALL) NOPASSWD: /usr/sbin/nginx, /usr/bin/systemctl reload nginx, /usr/local/bin/survive-rust-ssl" > "/etc/sudoers.d/${SYS_USER}"
 chmod 440 "/etc/sudoers.d/${SYS_USER}"
 
 # 4. Install Node.js 20 LTS Runtime
@@ -285,6 +303,11 @@ echo -e "${YELLOW}>>> Installing dependencies and compiling Backend...${NC}"
 cd "$APP_DIR/backend"
 sudo -u "$SYS_USER" npm install --production=false
 sudo -u "$SYS_USER" npx prisma generate
+
+# Create automatic database backup before synchronization to protect existing data
+echo -e "${YELLOW}>>> Creating database backup before schema sync...${NC}"
+mysqldump -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" > "$APP_DIR/db_backup_preinstall.sql" 2>/dev/null || true
+
 sudo -u "$SYS_USER" npx prisma db push --accept-data-loss
 sudo -u "$SYS_USER" npm run build
 
@@ -368,11 +391,12 @@ server {
 }
 NGINXEOF
 
-# Enable Nginx configuration and set permissions
-touch "/etc/nginx/sites-available/${NGINX_CONF}"
-chown "${SYS_USER}:${SYS_USER}" "/etc/nginx/sites-available/${NGINX_CONF}"
-mkdir -p /etc/nginx/ssl
-chown -R "${SYS_USER}:${SYS_USER}" /etc/nginx/ssl
+# Enable Nginx configuration and set secure permissions
+chown root:root "/etc/nginx/sites-available/${NGINX_CONF}"
+chmod 644 "/etc/nginx/sites-available/${NGINX_CONF}"
+mkdir -p /etc/ssl/survive-rust
+chown -R "${SYS_USER}:${SYS_USER}" /etc/ssl/survive-rust
+chmod 700 /etc/ssl/survive-rust
 
 ln -sf "/etc/nginx/sites-available/${NGINX_CONF}" /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default || true
