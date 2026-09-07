@@ -1,4 +1,4 @@
-# Survive Rust Store — Automated Server Deployment
+# Survive Rust Store - Automated Server Deployment
 
 Production-ready automated installation script for deploying the **SURVIVE RUST Store** web platform on **Ubuntu 20.04 / 22.04 / 24.04 LTS**.
 
