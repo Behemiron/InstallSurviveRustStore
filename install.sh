@@ -165,7 +165,7 @@ JWT_REFRESH_SECRET=$(openssl rand -hex 32)
 echo -e "\n${YELLOW}>>> Installing system packages and dependencies...${NC}"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y curl git build-essential openssl nginx certbot python3-certbot-nginx sudo redis-server ufw ca-certificates gnupg fail2ban iptables
+apt-get install -y curl git build-essential openssl nginx certbot python3-certbot-nginx sudo redis-server ufw ca-certificates gnupg fail2ban iptables rsyslog
 
 # Create restricted SSL helper script to prevent privilege escalation via certbot flags
 cat > /usr/local/bin/survive-rust-ssl << 'SSLEOF'
@@ -487,6 +487,7 @@ ignoreip = 127.0.0.1/8 ::1
 
 [sshd]
 enabled = true
+backend = systemd
 port = 22
 maxretry = 3
 bantime = 1d
