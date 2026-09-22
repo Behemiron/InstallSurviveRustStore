@@ -11,14 +11,20 @@ Designed & Maintained by **PavelNetesov / Behemiron** (Discord: `behemiron_77777
 This installer configures a hardened, non-root Linux environment following production security standards:
 
 1. **System User Isolation**: Automatically creates a non-privileged system user `${project_name}_surviverust` (`/home/${project_name}_surviverust`) and runs all Node.js / PM2 / Next.js / Express application processes strictly under this unprivileged user.
-2. **Automated UFW Firewall Security**:
+2. **Anti-Scan Direct IP Drop (`return 444`)**: Configures Nginx to instantly drop all direct TCP connections targeting the VPS IP address (`http://IP` and `https://IP`) or unmapped Host headers without response (`return 444`). Legitimate traffic is only accepted via your configured domain under Cloudflare CDN protection. Dummy fallback certificates ensure your domain is never leaked to SSL port scanners.
+3. **Automated Fail2ban Intrusion Prevention**: Automatically provisions Fail2ban with active jails:
+   - `sshd`: Automatically bans IP addresses attempting SSH password brute-force attacks (ban for 24h after 3 failed attempts).
+   - `nginx-botsearch`: Automatically detects and bans automated scanners probing for `.env`, `wp-login`, `phpmyadmin`, `.git`, or hidden scripts.
+   - `nginx-http-auth` & `nginx-limit-req`: Blocks authentication brute-force and request flooding.
+4. **Automated UFW Firewall Security**:
    - **Allowed Public Ports**: `80` (HTTP), `443` (HTTPS), `22` (SSH).
    - **Blocked External Ports**: `3306` (MySQL), `6379` (Redis), `3000` (Next.js Direct), `5000` (Express API Direct).
    - Database and application services bind locally to `127.0.0.1` and are reverse-proxied exclusively through Nginx.
-3. **Database Isolation**: Installs MySQL Server and creates a dedicated database `${project_name}_db` with auto-generated 32-character high-entropy credentials.
-4. **Nginx Reverse Proxy & SSL**: Configures virtual host routing for API `/api`, WebSocket `/ws`, and frontend `/`, with automated Let's Encrypt TLS certificate issuance via Certbot.
-5. **Zero-Downtime Process Management**: Integrates PM2 with systemd auto-restart policies upon VPS reboot.
-6. **In-Game Rust Plugin Security**: Uses a secure shared secret and HMAC request validation for game server store delivery.
+5. **Database Isolation**: Installs MySQL Server and creates a dedicated database `${project_name}_db` with auto-generated 32-character high-entropy credentials.
+6. **Next.js Hardened Architecture**: Deploys Next.js (16.3.5+) completely mitigating React Server Components RCE (React2Shell), SSRF, and middleware bypass vulnerabilities.
+7. **Nginx Reverse Proxy & SSL**: Configures virtual host routing for API `/api`, WebSocket `/ws`, and frontend `/`, with automated Let's Encrypt TLS certificate issuance via Certbot.
+8. **Zero-Downtime Process Management**: Integrates PM2 with systemd auto-restart policies upon VPS reboot.
+9. **In-Game Rust Plugin Security**: Uses a secure shared secret and HMAC request validation for game server store delivery.
 
 ---
 
@@ -128,6 +134,11 @@ sudo -u <project_user> pm2 restart <project_name>-frontend
 
 # Check active UFW firewall rules & blocked ports
 sudo ufw status verbose
+
+# Check Fail2ban active jails and banned IPs
+sudo fail2ban-client status
+sudo fail2ban-client status sshd
+sudo fail2ban-client status nginx-botsearch
 ```
 
 ---

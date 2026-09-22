@@ -165,7 +165,7 @@ JWT_REFRESH_SECRET=$(openssl rand -hex 32)
 echo -e "\n${YELLOW}>>> Installing system packages and dependencies...${NC}"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y curl git build-essential openssl nginx certbot python3-certbot-nginx sudo redis-server ufw ca-certificates gnupg
+apt-get install -y curl git build-essential openssl nginx certbot python3-certbot-nginx sudo redis-server ufw ca-certificates gnupg fail2ban iptables
 
 # Create restricted SSL helper script to prevent privilege escalation via certbot flags
 cat > /usr/local/bin/survive-rust-ssl << 'SSLEOF'
@@ -324,12 +324,45 @@ cd "$APP_DIR/frontend"
 sudo -u "$SYS_USER" npm install --production=false
 sudo -u "$SYS_USER" NEXT_PUBLIC_API_URL="http://${DOMAIN:-localhost}" NEXT_PUBLIC_WS_URL="ws://${DOMAIN:-localhost}" npm run build
 
-# 11. Configure Nginx Reverse Proxy with WebSocket Support & Hardened Limits
-echo -e "${YELLOW}>>> Configuring Nginx Virtual Host...${NC}"
+# 11. Configure Nginx Reverse Proxy with WebSocket Support & Hardened Security Limits
+echo -e "${YELLOW}>>> Configuring Nginx Virtual Host with Anti-Scan Security...${NC}"
+
+IS_IP="false"
+if [[ "$DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || [ "$DOMAIN" = "localhost" ]; then
+  IS_IP="true"
+fi
+
+# Generate dummy drop certificate to terminate unsolicited SSL/IP scans without leaking real domain
+mkdir -p /etc/ssl/nginx-drop
+if [ ! -f /etc/ssl/nginx-drop/drop.crt ]; then
+  openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+    -keyout /etc/ssl/nginx-drop/drop.key \
+    -out /etc/ssl/nginx-drop/drop.crt \
+    -subj "/CN=blocked" 2>/dev/null || true
+  chmod 600 /etc/ssl/nginx-drop/drop.key 2>/dev/null || true
+fi
+
 cat > "/etc/nginx/sites-available/${NGINX_CONF}" << NGINXEOF
+$(if [ "$IS_IP" = "false" ]; then cat << 'DROPEOF'
+# Security Hardening: Instantly drop all direct IP connections and unmapped Host headers
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    ssl_certificate /etc/ssl/nginx-drop/drop.crt;
+    ssl_certificate_key /etc/ssl/nginx-drop/drop.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    server_name _;
+    return 444;
+}
+
+DROPEOF
+fi)
 server {
     listen 80;
-    server_name ${DOMAIN:-_};
+    server_name ${DOMAIN:-_} $([ "$IS_IP" = "false" ] && echo "www.${DOMAIN}");
 
     client_max_body_size 50M;
 
@@ -418,11 +451,6 @@ systemctl enable "pm2-${SYS_USER}" 2>/dev/null || true
 systemctl start "pm2-${SYS_USER}" 2>/dev/null || true
 
 # 13. Automated Let's Encrypt SSL Certificate Issuance (Domain vs IP check)
-IS_IP="false"
-if [[ "$DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || [ "$DOMAIN" = "localhost" ]; then
-  IS_IP="true"
-fi
-
 if [ "$IS_IP" = "false" ] && [ -n "$DOMAIN" ]; then
   echo -e "${YELLOW}>>> Requesting Let's Encrypt SSL certificate for domain ${DOMAIN}...${NC}"
   certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "admin@${DOMAIN}" --redirect || echo -e "${RED}Warning: Could not automatically issue SSL certificate. Ensure your domain's DNS A Record points to this server IP.${NC}"
@@ -431,8 +459,8 @@ else
   echo -e "${CYAN}  You can attach your domain and activate SSL at any time in Admin Panel -> Domain & SSL Settings.${NC}"
 fi
 
-# 14. Configure Hardened UFW Firewall Rules
-echo -e "${YELLOW}>>> Configuring UFW Firewall security rules...${NC}"
+# 14. Configure Hardened UFW Firewall & Fail2ban Anti-Brute-Force Rules
+echo -e "${YELLOW}>>> Configuring UFW Firewall and Fail2ban security rules...${NC}"
 if command -v ufw &> /dev/null || apt-get install -y ufw; then
   ufw default deny incoming
   ufw default allow outgoing
@@ -445,6 +473,47 @@ if command -v ufw &> /dev/null || apt-get install -y ufw; then
   ufw deny 5000/tcp     # Block direct Express API port access (bypass Nginx)
   ufw --force enable
   echo -e "${GREEN}✓ UFW Firewall enabled. Database (3306), Redis (6379) and internal API ports are secured.${NC}"
+fi
+
+# Configure Fail2ban Jails for SSH and Nginx scanner protection
+if command -v fail2ban-client &> /dev/null || apt-get install -y fail2ban; then
+  echo -e "${YELLOW}>>> Configuring Fail2ban jails (SSH & Nginx bot scanners)...${NC}"
+  cat > /etc/fail2ban/jail.local << 'F2BEOF'
+[DEFAULT]
+bantime = 1h
+findtime = 10m
+maxretry = 5
+ignoreip = 127.0.0.1/8 ::1
+
+[sshd]
+enabled = true
+port = 22
+maxretry = 3
+bantime = 1d
+
+[nginx-http-auth]
+enabled = true
+port = http,https
+logpath = /var/log/nginx/error.log
+
+[nginx-botsearch]
+enabled = true
+port = http,https
+logpath = /var/log/nginx/access.log
+maxretry = 2
+bantime = 1d
+
+[nginx-limit-req]
+enabled = true
+port = http,https
+logpath = /var/log/nginx/error.log
+maxretry = 10
+bantime = 1h
+F2BEOF
+
+  systemctl restart fail2ban 2>/dev/null || systemctl start fail2ban 2>/dev/null || true
+  systemctl enable fail2ban 2>/dev/null || true
+  echo -e "${GREEN}✓ Fail2ban active: SSH, Nginx bot-scanners, and brute-force protection enabled.${NC}"
 fi
 
 echo -e "\n${GREEN}==============================================================================${NC}"
